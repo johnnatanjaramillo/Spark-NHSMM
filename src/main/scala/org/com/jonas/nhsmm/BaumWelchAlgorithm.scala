@@ -12,7 +12,7 @@ object BaumWelchAlgorithm {
 
   /** * function with reduce function ****/
   def run1(observations: DataFrame, M: Int, k: Int, D: Int,
-           initialPi: DenseVector[Double], initialA: DenseMatrix[Double], initialB: DenseMatrix[Double], initialP: DenseMatrix[Double],
+           initialPi: DenseVector[Double], initialA: DenseVector[DenseMatrix[Double]], initialB: DenseMatrix[Double],
            numPartitions: Int = 1, epsilon: Double = 0.0001, maxIterations: Int = 10000,
            kfold: Int, path_Class_baumwelch: String):
   (DenseVector[Double], DenseMatrix[Double], DenseMatrix[Double], DenseMatrix[Double]) = {
@@ -20,9 +20,14 @@ object BaumWelchAlgorithm {
     var prior = initialPi
     var transmat = initialA
     var obsmat = initialB
-    var durmat = initialP
     var antloglik: Double = Double.NegativeInfinity
     val log = org.apache.log4j.LogManager.getRootLogger
+
+    var arrTransmat: Array[Double] = Array()
+
+    (0 until D).foreach(d => {
+      arrTransmat = arrTransmat ++ transmat(d).toArray
+    })
 
     var inInter = 0
     if (new java.io.File(path_Class_baumwelch + kfold).exists) {
@@ -30,11 +35,21 @@ object BaumWelchAlgorithm {
       val stringModel: List[String] = scala.io.Source.fromFile(path_Class_baumwelch + kfold).getLines().toList
       val arraymodel = stringModel.last.split(";")
       prior = new DenseVector(arraymodel(5).split(",").map(_.toDouble))
-      transmat = new DenseMatrix(M, M, arraymodel(6).split(",").map(_.toDouble))
+
+      arrTransmat = arraymodel(6).split(",").map(_.toDouble)
+
+      transmat = DenseVector.fill(D) {
+        DenseMatrix.zeros[Double](M, M)
+      }
+
+      (0 until D).foreach(d => {
+        transmat(d) = new DenseMatrix(M, M, arrTransmat.slice( (d * M * M), ( ((d + 1) * (M * M)) - 1 ) )   )
+      } )
+
       obsmat = new DenseMatrix(M, k, arraymodel(7).split(",").map(_.toDouble))
-      durmat = new DenseMatrix(M, D, arraymodel(8).split(",").map(_.toDouble))
-      antloglik = arraymodel(9).toDouble
+      antloglik = arraymodel(8).toDouble
     } else nhsmm.Utils.writeresult(path_Class_baumwelch + kfold, "kfold;iteration;M;k;Pi;A;B;P;loglik\n")
+
 
     observations.persist()
     var obstrained = observations
@@ -42,9 +57,8 @@ object BaumWelchAlgorithm {
       .withColumn("k", lit(k))
       .withColumn("D", lit(D))
       .withColumn("Pi", lit(initialPi.toArray))
-      .withColumn("A", lit(initialA.toArray))
+      .withColumn("A", lit(arrTransmat))
       .withColumn("B", lit(initialB.toArray))
-      .withColumn("P", lit(initialP.toArray))
       .withColumn("obs", udf_toarray(col("str_obs")))
       .withColumn("T", udf_obssize(col("obs")))
 
@@ -54,7 +68,7 @@ object BaumWelchAlgorithm {
         log.info("Start Iteration: " + it)
         val newvalues = obstrained.repartition(numPartitions)
           .withColumn("obslik", udf_multinomialprob(col("obs"), col("M"), col("k"), col("T"), col("B")))
-          .withColumn("fwdback", udf_fwdback(col("M"), col("k"), col("D"), col("T"), col("Pi"), col("A"), col("P"), col("obslik"), col("obs")))
+          .withColumn("fwdback", udf_fwdback(col("M"), col("k"), col("D"), col("T"), col("Pi"), col("A"), col("obslik"), col("obs")))
           .withColumn("loglik", udf_loglik(col("fwdback")))
           .withColumn("prior", udf_newPi(col("fwdback")))
           .withColumn("transmat", udf_newA(col("fwdback")))
@@ -249,12 +263,132 @@ object BaumWelchAlgorithm {
     output
   })
 
-  val udf_fwdback: UserDefinedFunction = udf((M: Int, k: Int, D: Int, T: Int, Pi: Seq[Double], A: Seq[Double], P: Seq[Double], obslik: Seq[Double], obs: Seq[Int]) => {
+  val udf_fwdback: UserDefinedFunction = udf((M: Int, k: Int, D: Int, T: Int, Pi: Seq[Double], A: Seq[Double], obslik: Seq[Double], obs: Seq[Int]) => {
 
     val funPi: DenseVector[Double] = new DenseVector(Pi.toArray)
-    val funA: DenseMatrix[Double] = new DenseMatrix(M, M, A.toArray)
-    val funP: DenseMatrix[Double] = new DenseMatrix(M, D, P.toArray)
+    val funA: DenseVector[DenseMatrix[Double]] = DenseVector.fill(D) {
+      DenseMatrix.zeros[Double](M, M)
+    }
+
+    (0 until D).foreach(d => {
+      funA(d) = new DenseMatrix(M, M, A.toArray.slice( (d * M * M), ( ((d + 1) * (M * M)) - 1 ) )   )
+    } )
+
     val funObslik: DenseMatrix[Double] = new DenseMatrix(M, T, obslik.toArray)
+
+
+    val alpha = DenseVector.fill(T) {
+      DenseMatrix.zeros[Double](M, D)
+    }
+
+    (0 until M).foreach(j => alpha(0)(j, 0) = funPi(j) * funObslik(j, 0))
+
+    (1 until T).foreach(t => {
+      (0 until M).foreach(j => {
+        (0 until M).foreach(i => {
+          alpha(t)(j, 0) = alpha(t - 1)(i, 0) *  funA(0)(i, j) * funObslik(j, t)
+        })
+
+        (1 until D).foreach(d => {
+          var temp = 0.0
+          (0 until M).foreach(i => {
+            temp = temp + alpha(t - 1)(i, d) * funA(d)(i, j) * funObslik(j, t)
+          })
+
+          alpha(t)(j, 0) = alpha(t)(j, 0) + temp
+          alpha(t)(j, d) = alpha(t - 1)(j, d - 1) * funA(d - 1)(j, j) * funObslik(j, t)
+        })
+      })
+    })
+
+    val beta = DenseVector.fill(T) {
+      DenseMatrix.ones[Double](M, D)
+    }
+
+    for (t <- T - 2 to 0 by -1) {
+      (0 until M).foreach(j => {
+        (0 until D).foreach(d => {
+
+          beta(t)(j, d) = 0.0
+
+          (0 until M).foreach(i => {
+            beta(t)(j, d) = beta(t)(j, d) + (funA(d)(j, i) * beta(t + 1)(i, 0) * funObslik(i, t + 1)) + (funA(d)(j, j) * beta(t + 1)(j, d + 1) * funObslik(j, t + 1))
+          })
+
+        })
+      })
+    }
+
+    val matrix = DenseMatrix.fill(T, D) {
+      DenseMatrix.zeros[Double](M, M)
+    }
+
+    (0 until T).foreach(t => {
+      (0 until M).foreach(i => {
+        (0 until D).foreach(d => {
+          (0 until M).foreach(j => {
+            if(i != j){
+              matrix(t, d)(i, j) = alpha(t)(i, d) * funA(d)(i, j) * funObslik(j, t + 1) * beta(t + 1)(j, 1)
+            }else if(d <= D - 2){
+              matrix(t, d)(i, j) = alpha(t)(i, d) * funA(d)(i, i) * funObslik(i, t + 1) * beta(t + 1)(i, d + 1)
+            }
+
+          })
+
+
+        })
+      })
+    })
+
+
+    val matrixnn = DenseVector.fill(T) {
+      DenseMatrix.zeros[Double](M, D)
+    }
+
+    (0 until T).foreach(t => {
+      (0 until M).foreach(i => {
+        (0 until D).foreach(d => {
+
+          (0 until M).foreach(j => {
+            matrixnn(t)(i, d) = matrixnn(t)(i, d) + matrix(t, d)(i, j)
+          })
+
+        })
+      })
+    })
+
+    val matrixii = DenseVector.fill(T) {
+      DenseMatrix.zeros[Double](M, M)
+    }
+
+    (0 until T).foreach(t => {
+      (0 until M).foreach(i => {
+        (0 until M).foreach(j => {
+
+          (0 until D).foreach(d => {
+            matrixii(t)(i, j) = matrixii(t)(i, j) + matrixii(t, d)(i, j)
+          })
+
+        })
+      })
+    })
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     /**
       * Matriz u(t,j,d)

@@ -98,9 +98,9 @@ object CrossValidation {
       sampleClass0 = set_folds(sampleClass0, nClass0, k_folds)
       sampleClass0.write.format("com.databricks.spark.csv").save(applicationProps.getProperty("path_sample_Class0_folds"))
 
-      hsmm.Utils.writeresult(applicationProps.getProperty("path_result"), "N,TP,FP,FN,TN,sensitivity,specificity,accuracy,error\n")
-      hsmm.Utils.writeresult(applicationProps.getProperty("path_result_Class1_models"), "kfold;M;k;D;Pi;A;B;P\n")
-      hsmm.Utils.writeresult(applicationProps.getProperty("path_result_Class0_models"), "kfold;M;k;D;Pi;A;B;P\n")
+      nhsmm.Utils.writeresult(applicationProps.getProperty("path_result"), "N,TP,FP,FN,TN,sensitivity,specificity,accuracy,error\n")
+      nhsmm.Utils.writeresult(applicationProps.getProperty("path_result_Class1_models"), "kfold;M;k;D;Pi;A;B;P\n")
+      nhsmm.Utils.writeresult(applicationProps.getProperty("path_result_Class0_models"), "kfold;M;k;D;Pi;A;B;P\n")
     }
 
     sampleClass1.persist()
@@ -135,15 +135,28 @@ object CrossValidation {
       }else{
         log.info("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
         log.info("Start training Class 1")
-        val tmpModelClass1 = hsmm.BaumWelchAlgorithm.run1(trainClass1, value_M, value_k, value_D,
+
+        val initA: DenseVector[DenseMatrix[Double]] = DenseVector.fill(value_D) {
+          DenseMatrix.zeros[Double](value_M, value_M)
+        }
+
+        (0 until value_M).foreach(i => {
+          (0 until value_D).foreach(d => {
+            val tempVector = normalize(DenseVector.rand(value_M), 1.0)
+            (0 until value_M).foreach(j => {
+              initA(d)(i, j) = tempVector(j)
+            })
+          })
+        })
+
+        val tmpModelClass1 = nhsmm.BaumWelchAlgorithm.run1(trainClass1, value_M, value_k, value_D,
           normalize(DenseVector.rand(value_M), 1.0),
-          hsmm.Utils.mkstochastic(DenseMatrix.rand(value_M, value_M)),
-          hsmm.Utils.mkstochastic(DenseMatrix.rand(value_M, value_k)),
-          hsmm.Utils.mkstochastic(DenseMatrix.rand(value_M, value_D)),
+          initA,
+          nhsmm.Utils.mkstochastic(DenseMatrix.rand(value_M, value_k)),
           number_partitions, value_epsilon, max_num_iterations,
           inter, applicationProps.getProperty("path_result_Class1_models_baumwelch"))
         modelClass1 = (tmpModelClass1._1.toArray, tmpModelClass1._2.toArray, tmpModelClass1._3.toArray, tmpModelClass1._4.toArray)
-        hsmm.Utils.writeresult(applicationProps.getProperty("path_result_Class1_models"),
+        nhsmm.Utils.writeresult(applicationProps.getProperty("path_result_Class1_models"),
           inter + ";" +
             value_M + ";" +
             value_k + ";" +
@@ -168,15 +181,28 @@ object CrossValidation {
       } else {
         log.info("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
         log.info("Start training Class 0")
-        val tmpModelClass0 = hsmm.BaumWelchAlgorithm.run1(trainClass0, value_M, value_k, value_D,
+
+        val initA: DenseVector[DenseMatrix[Double]] = DenseVector.fill(value_D) {
+          DenseMatrix.zeros[Double](value_M, value_M)
+        }
+
+        (0 until value_M).foreach(i => {
+          (0 until value_D).foreach(d => {
+            val tempVector = normalize(DenseVector.rand(value_M), 1.0)
+            (0 until value_M).foreach(j => {
+              initA(d)(i, j) = tempVector(j)
+            })
+          })
+        })
+
+        val tmpModelClass0 = nhsmm.BaumWelchAlgorithm.run1(trainClass0, value_M, value_k, value_D,
           normalize(DenseVector.rand(value_M), 1.0),
-          hsmm.Utils.mkstochastic(DenseMatrix.rand(value_M, value_M)),
-          hsmm.Utils.mkstochastic(DenseMatrix.rand(value_M, value_k)),
-          hsmm.Utils.mkstochastic(DenseMatrix.rand(value_M, value_D)),
+          initA,
+          nhsmm.Utils.mkstochastic(DenseMatrix.rand(value_M, value_k)),
           number_partitions, value_epsilon, max_num_iterations,
           inter, applicationProps.getProperty("path_result_Class0_models_baumwelch"))
         modelClass0 = (tmpModelClass0._1.toArray, tmpModelClass0._2.toArray, tmpModelClass0._3.toArray, tmpModelClass0._4.toArray)
-        hsmm.Utils.writeresult(applicationProps.getProperty("path_result_Class0_models"),
+        nhsmm.Utils.writeresult(applicationProps.getProperty("path_result_Class0_models"),
           inter + ";" +
             value_M + ";" +
             value_k + ";" +
@@ -189,12 +215,12 @@ object CrossValidation {
       }
 
       val resultClass1 =
-        hsmm.BaumWelchAlgorithm.validate(validClass1, value_M, value_k, value_D,
+        nhsmm.BaumWelchAlgorithm.validate(validClass1, value_M, value_k, value_D,
           new DenseVector(modelClass1._1), new DenseMatrix(value_M, value_M, modelClass1._2),
           new DenseMatrix(value_M, value_k, modelClass1._3), new DenseMatrix(value_M, value_D, modelClass1._4))
           .withColumnRenamed("prob", "probMod1").as("valMod1")
           .join(
-            hsmm.BaumWelchAlgorithm.validate(validClass1, value_M, value_k, value_D,
+            nhsmm.BaumWelchAlgorithm.validate(validClass1, value_M, value_k, value_D,
               new DenseVector(modelClass0._1), new DenseMatrix(value_M, value_M, modelClass0._2),
               new DenseMatrix(value_M, value_k, modelClass0._3), new DenseMatrix(value_M, value_D, modelClass0._4))
               .withColumnRenamed("prob", "probMod0").as("valMod0"),
@@ -204,12 +230,12 @@ object CrossValidation {
       resultClass1.write.format("com.databricks.spark.csv").save(applicationProps.getProperty("path_sample_Class1_kfold") + inter)
 
       val resultClass0 =
-        hsmm.BaumWelchAlgorithm.validate(validClass0, value_M, value_k, value_D,
+        nhsmm.BaumWelchAlgorithm.validate(validClass0, value_M, value_k, value_D,
           new DenseVector(modelClass1._1), new DenseMatrix(value_M, value_M, modelClass1._2),
           new DenseMatrix(value_M, value_k, modelClass1._3), new DenseMatrix(value_M, value_D, modelClass1._4))
           .withColumnRenamed("prob", "probMod1").as("valMod1")
           .join(
-            hsmm.BaumWelchAlgorithm.validate(validClass0, value_M, value_k, value_D,
+            nhsmm.BaumWelchAlgorithm.validate(validClass0, value_M, value_k, value_D,
               new DenseVector(modelClass0._1), new DenseMatrix(value_M, value_M, modelClass0._2),
               new DenseMatrix(value_M, value_k, modelClass0._3), new DenseMatrix(value_M, value_D, modelClass0._4))
               .withColumnRenamed("prob", "probMod0").as("valMod0"),
@@ -271,7 +297,7 @@ object CrossValidation {
       validClass0.unpersist()
 
       log.info("*****************************************************************************************")
-      hsmm.Utils.writeresult(applicationProps.getProperty("path_result"), N + "," + TP + "," + FP + "," + FN + "," + TN + "," + sensi + "," + speci + "," + effic + "," + error + "\n")
+      nhsmm.Utils.writeresult(applicationProps.getProperty("path_result"), N + "," + TP + "," + FP + "," + FN + "," + TN + "," + sensi + "," + speci + "," + effic + "," + error + "\n")
     })
     sparkSession.stop()
   }

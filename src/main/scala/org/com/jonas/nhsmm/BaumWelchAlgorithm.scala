@@ -1,7 +1,7 @@
 package org.com.jonas.nhsmm
 
 import scala.util.control.Breaks._
-import breeze.linalg.{DenseMatrix, DenseVector, normalize, sum}
+import breeze.linalg.{DenseMatrix, DenseVector, Transpose, normalize, sum}
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.DataFrame
@@ -43,8 +43,8 @@ object BaumWelchAlgorithm {
       }
 
       (0 until D).foreach(d => {
-        transmat(d) = new DenseMatrix(M, M, arrTransmat.slice( (d * M * M), ( ((d + 1) * (M * M)) - 1 ) )   )
-      } )
+        transmat(d) = new DenseMatrix(M, M, arrTransmat.slice((d * M * M), (((d + 1) * (M * M)) - 1)))
+      })
 
       obsmat = new DenseMatrix(M, k, arraymodel(7).split(",").map(_.toDouble))
       antloglik = arraymodel(8).toDouble
@@ -270,30 +270,27 @@ object BaumWelchAlgorithm {
       DenseMatrix.zeros[Double](M, M)
     }
 
-    (0 until D).foreach(d => {
-      funA(d) = new DenseMatrix(M, M, A.toArray.slice( (d * M * M), ( ((d + 1) * (M * M)) - 1 ) )   )
-    } )
+    (0 until D).foreach(d => funA(d) = new DenseMatrix(M, M, A.toArray.slice((d * M * M), (((d + 1) * (M * M)) - 1))))
 
     val funObslik: DenseMatrix[Double] = new DenseMatrix(M, T, obslik.toArray)
 
-
+    val scale2: DenseVector[Double] = DenseVector.ones[Double](T * D)
     val alpha = DenseVector.fill(T) {
       DenseMatrix.zeros[Double](M, D)
     }
 
     (0 until M).foreach(j => alpha(0)(j, 0) = funPi(j) * funObslik(j, 0))
+    alpha(0)(::, 0) := Utils.normalise(alpha(0)(::, 0), scale2, 0)
+
+    var scalaindex = 1
 
     (1 until T).foreach(t => {
       (0 until M).foreach(j => {
-        (0 until M).foreach(i => {
-          alpha(t)(j, 0) = alpha(t - 1)(i, 0) *  funA(0)(i, j) * funObslik(j, t)
-        })
+        (0 until M).foreach(i => alpha(t)(j, 0) = alpha(t - 1)(i, 0) * funA(0)(i, j) * funObslik(j, t))
 
         (1 until D).foreach(d => {
           var temp = 0.0
-          (0 until M).foreach(i => {
-            temp = temp + alpha(t - 1)(i, d) * funA(d)(i, j) * funObslik(j, t)
-          })
+          (0 until M).foreach(i => temp = temp + alpha(t - 1)(i, d) * funA(d)(i, j) * funObslik(j, t))
 
           alpha(t)(j, 0) = alpha(t)(j, 0) + temp
           alpha(t)(j, d) = alpha(t - 1)(j, d - 1) * funA(d - 1)(j, j) * funObslik(j, t)
@@ -308,18 +305,13 @@ object BaumWelchAlgorithm {
     for (t <- T - 2 to 0 by -1) {
       (0 until M).foreach(j => {
         (0 until D).foreach(d => {
-
           beta(t)(j, d) = 0.0
-
-          (0 until M).foreach(i => {
-            beta(t)(j, d) = beta(t)(j, d) + (funA(d)(j, i) * beta(t + 1)(i, 0) * funObslik(i, t + 1)) + (funA(d)(j, j) * beta(t + 1)(j, d + 1) * funObslik(j, t + 1))
-          })
-
+          (0 until M).foreach(i => beta(t)(j, d) = beta(t)(j, d) + (funA(d)(j, i) * beta(t + 1)(i, 0) * funObslik(i, t + 1)) + (funA(d)(j, j) * beta(t + 1)(j, d + 1) * funObslik(j, t + 1)))
         })
       })
     }
 
-    val matrix = DenseMatrix.fill(T, D) {
+    val matrixi = DenseMatrix.fill(T, D) {
       DenseMatrix.zeros[Double](M, M)
     }
 
@@ -327,86 +319,67 @@ object BaumWelchAlgorithm {
       (0 until M).foreach(i => {
         (0 until D).foreach(d => {
           (0 until M).foreach(j => {
-            if(i != j){
-              matrix(t, d)(i, j) = alpha(t)(i, d) * funA(d)(i, j) * funObslik(j, t + 1) * beta(t + 1)(j, 1)
-            }else if(d <= D - 2){
-              matrix(t, d)(i, j) = alpha(t)(i, d) * funA(d)(i, i) * funObslik(i, t + 1) * beta(t + 1)(i, d + 1)
+            if (i != j) {
+              matrixi(t, d)(i, j) = alpha(t)(i, d) * funA(d)(i, j) * funObslik(j, t + 1) * beta(t + 1)(j, 1)
+            } else if (d <= D - 2) {
+              matrixi(t, d)(i, j) = alpha(t)(i, d) * funA(d)(i, i) * funObslik(i, t + 1) * beta(t + 1)(i, d + 1)
             }
-
           })
-
-
         })
       })
     })
 
-
-    val matrixnn = DenseVector.fill(T) {
+    val matrixn2 = DenseVector.fill(T) {
       DenseMatrix.zeros[Double](M, D)
     }
 
     (0 until T).foreach(t => {
       (0 until M).foreach(i => {
         (0 until D).foreach(d => {
-
-          (0 until M).foreach(j => {
-            matrixnn(t)(i, d) = matrixnn(t)(i, d) + matrix(t, d)(i, j)
-          })
-
+          (0 until M).foreach(j => matrixn2(t)(i, d) = matrixn2(t)(i, d) + matrixi(t, d)(i, j))
         })
       })
     })
 
-    val matrixii = DenseVector.fill(T) {
+    val matrixg2 = DenseMatrix.zeros[Double](T, M)
+
+    (0 until T).foreach(t => {
+      (0 until M).foreach(j => {
+        (t until T).foreach(tao => {
+          (tao - t + 1 until D).foreach(d => {
+            matrixg2(t, j) = matrixg2(t, j) + matrixn2(tao)(j, d)
+          })
+        })
+      })
+    })
+
+    val newPi: DenseVector[Double] = new DenseVector(matrixg2(0,::).t.toArray)
+
+    val newA: DenseVector[DenseMatrix[Double]] = DenseVector.fill(D) {
       DenseMatrix.zeros[Double](M, M)
     }
 
-    (0 until T).foreach(t => {
+    (0 until D).foreach(d => {
       (0 until M).foreach(i => {
         (0 until M).foreach(j => {
-
-          (0 until D).foreach(d => {
-            matrixii(t)(i, j) = matrixii(t)(i, j) + matrixii(t, d)(i, j)
+          (0 until T).foreach(t => {
+            newA(d)(i, j) = newA(d)(i, j) + matrixi(t, d)(i, j)
           })
-
         })
       })
     })
 
+    val newB2 = DenseMatrix.zeros[Double](M, k)
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    /**
-      * Matriz u(t,j,d)
-      */
-    val matrixu: DenseVector[DenseMatrix[Double]] = DenseVector.fill(T) {
-      DenseMatrix.zeros[Double](M, D)
-    }
-
-    /** * optimizar unificando **/
-    (0 until T).foreach(t =>
-      (0 until M).foreach(j => matrixu(t)(j, 0) = funObslik(j, t)))
-
-    (0 until T).foreach(t =>
-      (0 until M).foreach(j =>
-        (1 until D).foreach(d =>
-          //(1 to t + 1).foreach(d =>
-          if (d - 1 > -1 && t - d + 1 > -1)
-            matrixu(t)(j, d) = matrixu(t)(j, d - 1) * funObslik(j, t - d + 1))))
+    (0 until M).foreach(j => {
+      (0 until k).foreach(v => {
+        (0 until T).foreach(t => {
+          if(obs(t) == v){
+            newB2(j, v) = newB2(j, v) + matrixg2(t, j)
+          }
+        })
+      })
+    })
 
     /**
       * Forwards variables

@@ -284,30 +284,46 @@ object BaumWelchAlgorithm {
 
     var scalaindex = 1
 
+    //se cambio el orden de los ciclos para realizar normalización en j
+    //probar normalizar por matrices
+    /***
+      * IMPORTANTE probar normalizando alpha por fila, y normalizando beta por matrix
+      *
+      */
     (1 until T).foreach(t => {
-      (0 until M).foreach(j => {
-        (0 until M).foreach(i => alpha(t)(j, 0) = alpha(t - 1)(i, 0) * funA(0)(i, j) * funObslik(j, t))
 
-        (1 until D).foreach(d => {
+      (1 until D).foreach(d => {
+
+        (0 until M).foreach(j => {
+
+          (0 until M).foreach(i => alpha(t)(j, 0) = alpha(t - 1)(i, 0) * funA(0)(i, j) * funObslik(j, t))
+
+
           var temp = 0.0
           (0 until M).foreach(i => temp = temp + alpha(t - 1)(i, d) * funA(d)(i, j) * funObslik(j, t))
 
           alpha(t)(j, 0) = alpha(t)(j, 0) + temp
           alpha(t)(j, d) = alpha(t - 1)(j, d - 1) * funA(d - 1)(j, j) * funObslik(j, t)
         })
+        alpha(t)(::, d) := Utils.normalise(alpha(t)(::, d), scale2, scalaindex)
+        scalaindex = scalaindex + 1
       })
     })
+
+    val loglik: Double = sum(scale2.map(Math.log))
 
     val beta = DenseVector.fill(T) {
       DenseMatrix.ones[Double](M, D)
     }
 
+    //es necesio normalizart la fila de unos?
     for (t <- T - 2 to 0 by -1) {
-      (0 until M).foreach(j => {
-        (0 until D).foreach(d => {
+      (0 until D).foreach(d => {
+        (0 until M).foreach(j => {
           beta(t)(j, d) = 0.0
           (0 until M).foreach(i => beta(t)(j, d) = beta(t)(j, d) + (funA(d)(j, i) * beta(t + 1)(i, 0) * funObslik(i, t + 1)) + (funA(d)(j, j) * beta(t + 1)(j, d + 1) * funObslik(j, t + 1)))
         })
+        beta(t)(::, d) := normalize(alpha(t)(::, d), 1.0)
       })
     }
 
@@ -353,7 +369,7 @@ object BaumWelchAlgorithm {
       })
     })
 
-    val newPi: DenseVector[Double] = new DenseVector(matrixg2(0,::).t.toArray)
+    val newPi: DenseVector[Double] = new DenseVector(matrixg2(0, ::).t.toArray)
 
     val newA: DenseVector[DenseMatrix[Double]] = DenseVector.fill(D) {
       DenseMatrix.zeros[Double](M, M)
@@ -374,31 +390,13 @@ object BaumWelchAlgorithm {
     (0 until M).foreach(j => {
       (0 until k).foreach(v => {
         (0 until T).foreach(t => {
-          if(obs(t) == v){
+          if (obs(t) == v) {
             newB2(j, v) = newB2(j, v) + matrixg2(t, j)
           }
         })
       })
     })
 
-    /**
-      * Forwards variables
-      */
-    val scale: DenseVector[Double] = DenseVector.ones[Double](T)
-    val alpha: DenseMatrix[Double] = DenseMatrix.zeros[Double](M, T)
-    val alphaprime: DenseMatrix[Double] = DenseMatrix.zeros[Double](M, T + 1)
-
-    alphaprime(::, 0) := normalize(funPi, 1.0)
-    (0 until T).foreach(t => {
-      (0 until M).foreach(j =>
-        (0 until D).foreach(d =>
-          if (t - d + 1 > -1 && t - d + 1 < T + 1)
-            alpha(j, t) = alpha(j, t) + (alphaprime(j, t - d + 1) * funP(j, d) * matrixu(t)(j, d))))
-      alpha(::, t) := Utils.normalise(alpha(::, t), scale, t)
-      (0 until M).foreach(j =>
-        (0 until M).foreach(i => alphaprime(j, t + 1) = alphaprime(j, t + 1) + alpha(i, t) * funA(i, j)))
-      alphaprime(::, t + 1) := normalize(alphaprime(::, t + 1), 1.0)
-    })
 
     //var loglik: Double = 0.0
     //if (scale.toArray.filter(i => i == 0).isEmpty) loglik = sum(scale.map(Math.log)) else loglik = Double.NegativeInfinity

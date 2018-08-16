@@ -4,8 +4,15 @@
     <option name="customVMPath" />
     <option name="linkedExternalProjectsSettings">
       <SbtProjectSettings>
-        <option name="externalProjectPath" value="C:\Users\johnnatan.jaramillo\IdeaProjects\Spark-NHSMM" />
-        <option name="useAutoImport" value="true" />
+        <option name="externalProjectPath" value="$PROJECT_DIR$" />
+        <option name="modules">
+          <set>
+            <option value="$PROJECT_DIR$" />
+            <option value="$PROJECT_DIR$/project" />
+          </set>
+        </option>
+        <option name="sbtVersion" value="0.13.17" />
+        <option name="useSbtShell" value="true" />
       </SbtProjectSettings>
     </option>
   </component>

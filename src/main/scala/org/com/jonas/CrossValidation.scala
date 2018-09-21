@@ -145,13 +145,17 @@ object CrossValidation {
             (0 until value_M).foreach(j => initA(d)(i, j) = tempVector(j))
           }))
 
-        val tmpModelClass1 = nhsmm.BaumWelchAlgorithm.run1(trainClass1, value_M, value_k, value_D,
+        val tmpModelClass1: (DenseVector[Double], DenseVector[DenseMatrix[Double]], DenseMatrix[Double]) = nhsmm.BaumWelchAlgorithm.run1(trainClass1, value_M, value_k, value_D,
           normalize(DenseVector.rand(value_M), 1.0),
           initA,
           nhsmm.Utils.mkstochastic(DenseMatrix.rand(value_M, value_k)),
           number_partitions, value_epsilon, max_num_iterations,
           inter, applicationProps.getProperty("path_result_Class1_models_baumwelch"))
-        modelClass1 = (tmpModelClass1._1.toArray, tmpModelClass1._2.toArray, tmpModelClass1._3.toArray)
+
+        var arrTransmat: Array[Double] = Array()
+        (0 until value_D).foreach(d => arrTransmat = arrTransmat ++ tmpModelClass1._2(d).toArray)
+
+        modelClass1 = (tmpModelClass1._1.toArray, arrTransmat, tmpModelClass1._3.toArray)
         nhsmm.Utils.writeresult(applicationProps.getProperty("path_result_Class1_models"),
           inter + ";" +
             value_M + ";" +
@@ -192,7 +196,11 @@ object CrossValidation {
           nhsmm.Utils.mkstochastic(DenseMatrix.rand(value_M, value_k)),
           number_partitions, value_epsilon, max_num_iterations,
           inter, applicationProps.getProperty("path_result_Class0_models_baumwelch"))
-        modelClass0 = (tmpModelClass0._1.toArray, tmpModelClass0._2.toArray, tmpModelClass0._3.toArray)
+
+        var arrTransmat: Array[Double] = Array()
+        (0 until value_D).foreach(d => arrTransmat = arrTransmat ++ tmpModelClass0._2(d).toArray)
+
+        modelClass0 = (tmpModelClass0._1.toArray, arrTransmat, tmpModelClass0._3.toArray)
         nhsmm.Utils.writeresult(applicationProps.getProperty("path_result_Class0_models"),
           inter + ";" +
             value_M + ";" +
@@ -204,15 +212,32 @@ object CrossValidation {
         log.info("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
       }
 
+      val modelClass1_2: DenseVector[DenseMatrix[Double]] = DenseVector.fill(value_D) {
+        DenseMatrix.zeros[Double](value_M, value_M)
+      }
+
+      var numTemp = value_M * value_M
+      (0 until value_D).foreach(d => {
+        modelClass1_2(d) = new DenseMatrix(value_M, value_k, modelClass1._2.slice(d * numTemp, (d + 1) * numTemp ))
+      })
+
+      val modelClass0_2: DenseVector[DenseMatrix[Double]] = DenseVector.fill(value_D) {
+        DenseMatrix.zeros[Double](value_M, value_M)
+      }
+
+      (0 until value_D).foreach(d => {
+        modelClass0_2(d) = new DenseMatrix(value_M, value_k, modelClass0._2.slice(d * numTemp, (d + 1) * numTemp ))
+      })
+
       val resultClass1 =
         nhsmm.BaumWelchAlgorithm.validate(validClass1, value_M, value_k, value_D,
-          new DenseVector(modelClass1._1), new DenseMatrix(value_M, value_M, modelClass1._2),
-          new DenseMatrix(value_M, value_k, modelClass1._3), new DenseMatrix(value_M, value_D, modelClass1._4))
+          new DenseVector(modelClass1._1), modelClass1_2,
+          new DenseMatrix(value_M, value_k, modelClass1._3))
           .withColumnRenamed("prob", "probMod1").as("valMod1")
           .join(
             nhsmm.BaumWelchAlgorithm.validate(validClass1, value_M, value_k, value_D,
-              new DenseVector(modelClass0._1), new DenseMatrix(value_M, value_M, modelClass0._2),
-              new DenseMatrix(value_M, value_k, modelClass0._3), new DenseMatrix(value_M, value_D, modelClass0._4))
+              new DenseVector(modelClass0._1), modelClass0_2,
+              new DenseMatrix(value_M, value_k, modelClass0._3))
               .withColumnRenamed("prob", "probMod0").as("valMod0"),
             col("valMod1.workitem") === col("valMod0.workitem"), "inner")
           .select(col("valMod1.workitem").as("workitem"), col("probMod1"), col("probMod0"))
@@ -221,13 +246,13 @@ object CrossValidation {
 
       val resultClass0 =
         nhsmm.BaumWelchAlgorithm.validate(validClass0, value_M, value_k, value_D,
-          new DenseVector(modelClass1._1), new DenseMatrix(value_M, value_M, modelClass1._2),
-          new DenseMatrix(value_M, value_k, modelClass1._3), new DenseMatrix(value_M, value_D, modelClass1._4))
+          new DenseVector(modelClass1._1), modelClass1_2,
+          new DenseMatrix(value_M, value_k, modelClass1._3))
           .withColumnRenamed("prob", "probMod1").as("valMod1")
           .join(
             nhsmm.BaumWelchAlgorithm.validate(validClass0, value_M, value_k, value_D,
-              new DenseVector(modelClass0._1), new DenseMatrix(value_M, value_M, modelClass0._2),
-              new DenseMatrix(value_M, value_k, modelClass0._3), new DenseMatrix(value_M, value_D, modelClass0._4))
+              new DenseVector(modelClass0._1), modelClass0_2,
+              new DenseMatrix(value_M, value_k, modelClass0._3))
               .withColumnRenamed("prob", "probMod0").as("valMod0"),
             col("valMod1.workitem") === col("valMod0.workitem"), "inner")
           .select(col("valMod1.workitem").as("workitem"), col("probMod1"), col("probMod0"))

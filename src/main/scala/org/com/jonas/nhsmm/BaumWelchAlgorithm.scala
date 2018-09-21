@@ -42,7 +42,7 @@ object BaumWelchAlgorithm {
       (0 until D).foreach(d => transmat(d) = new DenseMatrix(M, M, arrTransmat.slice((d * M * M), (((d + 1) * (M * M)) - 1))))
 
       obsmat = new DenseMatrix(M, k, arraymodel(6).split(",").map(_.toDouble))
-      antloglik = arraymodel(8).toDouble
+      antloglik = arraymodel(7).toDouble
     } else nhsmm.Utils.writeresult(path_Class_baumwelch + kfold, "kfold;iteration;M;k;Pi;A;B;loglik\n")
 
 
@@ -92,6 +92,7 @@ object BaumWelchAlgorithm {
             k + ";" +
             D + ";" +
             prior.toArray.mkString(",") + ";" +
+            //validar si lo genera correctamente
             transmat.toArray.mkString(",") + ";" +
             obsmat.toArray.mkString(",") + ";" +
             loglik + "\n")
@@ -121,7 +122,7 @@ object BaumWelchAlgorithm {
   }
 
   def validate(observations: DataFrame, M: Int, k: Int, D: Int,
-               initialPi: DenseVector[Double], initialA: DenseVector[DenseMatrix[Double]], initialB: DenseMatrix[Double], initialP: DenseMatrix[Double]):
+               initialPi: DenseVector[Double], initialA: DenseVector[DenseMatrix[Double]], initialB: DenseMatrix[Double]):
   DataFrame = {
     observations
       .withColumn("M", lit(M))
@@ -130,7 +131,6 @@ object BaumWelchAlgorithm {
       .withColumn("Pi", lit(initialPi.toArray))
       .withColumn("A", lit(initialA.toArray))
       .withColumn("B", lit(initialB.toArray))
-      .withColumn("P", lit(initialP.toArray))
       .withColumn("obs", udf_toarray(col("str_obs")))
       .withColumn("T", udf_obssize(col("obs")))
       .withColumn("obslik", udf_multinomialprob(col("obs"), col("M"), col("k"), col("T"), col("B")))

@@ -21,6 +21,12 @@ object Utils {
     if (rsum == 0) input else input :*= 1 / rsum
   }
 
+  def normalise(input: DenseMatrix[Double], inscale: DenseVector[Double], index: Int): DenseMatrix[Double] = {
+    val rsum = sum(input)
+    inscale(index) = rsum
+    if (rsum == 0) input else input :*= 1 / rsum
+  }
+
   def mkstochastic(input: DenseMatrix[Double]): DenseMatrix[Double] = {
     (0 until input.rows).foreach(i => input(i, ::) := normalize(input(i, ::).t, 1.0).t)
     input

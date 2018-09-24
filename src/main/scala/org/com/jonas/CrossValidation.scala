@@ -2,7 +2,7 @@ package org.com.jonas
 
 import java.io.FileInputStream
 
-import breeze.linalg.{DenseMatrix, DenseVector, normalize}
+import breeze.linalg.{DenseMatrix, DenseVector, Transpose, normalize}
 import org.apache.log4j.{Level, Logger}
 import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
@@ -127,9 +127,9 @@ object CrossValidation {
         log.info("Start Load Model Class 1")
         val stringModel: List[String] = scala.io.Source.fromFile(applicationProps.getProperty("path_result_Class1_models")).getLines().toList
         val arraymodel = stringModel.last.split(";")
-        modelClass1 = (arraymodel(3).split(",").map(_.toDouble),
-          arraymodel(4).split(",").map(_.toDouble),
-          arraymodel(5).split(",").map(_.toDouble))
+        modelClass1 = (arraymodel(4).split(",").map(_.toDouble),
+          arraymodel(5).split(",").map(_.toDouble),
+          arraymodel(6).split(",").map(_.toDouble))
         log.info("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
       } else {
         log.info("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
@@ -139,13 +139,15 @@ object CrossValidation {
           DenseMatrix.zeros[Double](value_M, value_M)
         }
 
-        (0 until value_M).foreach(i =>
-          (0 until value_D).foreach(d => {
-            val tempVector = normalize(DenseVector.rand(value_M), 1.0)
-            (0 until value_M).foreach(j => initA(d)(i, j) = tempVector(j))
-          }))
+        (0 until value_D).foreach(d => {
+          (0 until value_M).foreach(i => {
+            initA(d)(i, ::) := normalize(DenseVector.rand(value_M), 1.0).t
+          })
+        })
 
-        val tmpModelClass1: (DenseVector[Double], DenseVector[DenseMatrix[Double]], DenseMatrix[Double]) = nhsmm.BaumWelchAlgorithm.run1(trainClass1, value_M, value_k, value_D,
+        val tmpModelClass1: (DenseVector[Double], DenseVector[DenseMatrix[Double]], DenseMatrix[Double]) = nhsmm.BaumWelchAlgorithm.run1(
+          trainClass1,
+          value_M, value_k, value_D,
           normalize(DenseVector.rand(value_M), 1.0),
           initA,
           nhsmm.Utils.mkstochastic(DenseMatrix.rand(value_M, value_k)),
@@ -172,9 +174,9 @@ object CrossValidation {
         log.info("Start Load Model Class 0")
         val stringModel: List[String] = scala.io.Source.fromFile(applicationProps.getProperty("path_result_Class0_models")).getLines().toList
         val arraymodel = stringModel.last.split(";")
-        modelClass0 = (arraymodel(3).split(",").map(_.toDouble),
-          arraymodel(4).split(",").map(_.toDouble),
-          arraymodel(5).split(",").map(_.toDouble))
+        modelClass0 = (arraymodel(4).split(",").map(_.toDouble),
+          arraymodel(5).split(",").map(_.toDouble),
+          arraymodel(6).split(",").map(_.toDouble))
         log.info("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
       } else {
         log.info("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++")
@@ -184,11 +186,11 @@ object CrossValidation {
           DenseMatrix.zeros[Double](value_M, value_M)
         }
 
-        (0 until value_M).foreach(i =>
-          (0 until value_D).foreach(d => {
-            val tempVector = normalize(DenseVector.rand(value_M), 1.0)
-            (0 until value_M).foreach(j => initA(d)(i, j) = tempVector(j))
-          }))
+        (0 until value_D).foreach(d => {
+          (0 until value_M).foreach(i => {
+            initA(d)(i, ::) := normalize(DenseVector.rand(value_M), 1.0).t
+          })
+        })
 
         val tmpModelClass0 = nhsmm.BaumWelchAlgorithm.run1(trainClass0, value_M, value_k, value_D,
           normalize(DenseVector.rand(value_M), 1.0),
@@ -216,9 +218,9 @@ object CrossValidation {
         DenseMatrix.zeros[Double](value_M, value_M)
       }
 
-      var numTemp = value_M * value_M
+      var multM = value_M * value_M
       (0 until value_D).foreach(d => {
-        modelClass1_2(d) = new DenseMatrix(value_M, value_k, modelClass1._2.slice(d * numTemp, (d + 1) * numTemp ))
+        modelClass1_2(d) = new DenseMatrix(value_M, value_k, modelClass1._2.slice(d * multM, (d + 1) * multM))
       })
 
       val modelClass0_2: DenseVector[DenseMatrix[Double]] = DenseVector.fill(value_D) {
@@ -226,7 +228,7 @@ object CrossValidation {
       }
 
       (0 until value_D).foreach(d => {
-        modelClass0_2(d) = new DenseMatrix(value_M, value_k, modelClass0._2.slice(d * numTemp, (d + 1) * numTemp ))
+        modelClass0_2(d) = new DenseMatrix(value_M, value_k, modelClass0._2.slice(d * multM, (d + 1) * multM))
       })
 
       val resultClass1 =

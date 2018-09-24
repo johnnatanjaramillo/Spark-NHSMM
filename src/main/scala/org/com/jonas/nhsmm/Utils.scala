@@ -13,7 +13,10 @@ object Utils {
 
   //def normalise(input: DenseVector[Double]): DenseVector[Double] = input :*= 1 / sum(input)
 
-  def normalise(input: DenseMatrix[Double]): DenseMatrix[Double] = input :*= 1 / sum(input)
+  def normalise(input: DenseMatrix[Double]): DenseMatrix[Double] = {
+    val rsum = sum(input)
+    if (rsum == 0) input else input :*= 1 / rsum
+  }
 
   def normalise(input: DenseVector[Double], inscale: DenseVector[Double], index: Int): DenseVector[Double] = {
     val rsum = sum(input)

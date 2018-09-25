@@ -48,8 +48,6 @@ object BaumWelchAlgorithm {
 
     } else nhsmm.Utils.writeresult(path_Class_baumwelch + kfold, "kfold;iteration;M;k;Pi;A;B;loglik\n")
 
-    //println(initialPi)
-
     observations.persist()
     var obstrained = observations
       .withColumn("M", lit(M))
@@ -191,17 +189,10 @@ object BaumWelchAlgorithm {
     }
 
     (0 until M).foreach(j => alpha(0)(j, 0) = funPi(j) * funObslik(j, 0))
-    //Validar dos caminos, por fila y por matriz
     alpha(0)(::, 0) := Utils.normalise(alpha(0)(::, 0), scale, 0)
 
     var scalaindex = 1
 
-    //se cambio el orden de los ciclos para realizar normalización en j
-    //probar normalizar por matrices
-    /** *
-      * IMPORTANTE probar normalizando alpha por fila, y normalizando beta por matrix
-      *
-      */
     (1 until T).foreach(t => {
       (0 until M).foreach(j => {
 
@@ -210,85 +201,36 @@ object BaumWelchAlgorithm {
         (1 until D).foreach(d => {
           var temp = 0.0
           (0 until M).foreach(i => temp = temp + (alpha(t - 1)(i, d) * funA(d)(i, j) * funObslik(j, t)))
+
           alpha(t)(j, 0) = alpha(t)(j, 0) + temp
+
           alpha(t)(j, d) = alpha(t - 1)(j, d - 1) * funA(d - 1)(j, j) * funObslik(j, t)
         })
       })
       alpha(t) := Utils.normalise(alpha(t), scale, t)
     })
 
-/*
-    (0 until T).foreach(t => {
-      (0 until M).foreach(j => {
-        println("Matrix: " + t + " Line: " + j)
-        println(alpha(t)(j, ::))
-      })
-    })*/
-
-
-    /*
-    (1 until T).foreach(t => {
-
-      (1 until D).foreach(d => {
-
-        (0 until M).foreach(j => {
-
-          (0 until M).foreach(i => alpha(t)(j, 0) = alpha(t - 1)(i, 0) * funA(0)(i, j) * funObslik(j, t))
-
-
-          var temp = 0.0
-          (0 until M).foreach(i => temp = temp + alpha(t - 1)(i, d) * funA(d)(i, j) * funObslik(j, t))
-
-          alpha(t)(j, 0) = alpha(t)(j, 0) + temp
-          alpha(t)(j, d) = alpha(t - 1)(j, d - 1) * funA(d - 1)(j, j) * funObslik(j, t)
-        })
-        alpha(t)(::, d) := Utils.normalise(alpha(t)(::, d), scale, scalaindex)
-        scalaindex = scalaindex + 1
-      })
-    })
-    */
-
     val loglik: Double = sum(scale.map(Math.log))
 
     val beta = DenseVector.fill(T) {
-      DenseMatrix.ones[Double](M, D)
+      DenseMatrix.zeros[Double](M, D)
     }
+
+    (0 until M).foreach(j => {
+      (0 until D).foreach(d => {
+        beta(T - 1)(j, d) = 1.0
+      })
+    })
 
     for (t <- T - 2 to 0 by -1) {
       (0 until M).foreach(j => {
-        (0 until D).foreach(d => {
-          beta(t)(j, d) = 0.0
-          if(D == d + 1){
-            (0 until M).foreach(i => beta(t)(j, d) = beta(t)(j, d) + (funA(d)(j, i) * beta(t + 1)(i, 0) * funObslik(i, t + 1)) + (funA(d)(j, j) * 0 * funObslik(j, t + 1)))
-          }else{
+        //probar si es "D - 1" o "D"
+        (0 until D - 1).foreach(d => {
             (0 until M).foreach(i => beta(t)(j, d) = beta(t)(j, d) + (funA(d)(j, i) * beta(t + 1)(i, 0) * funObslik(i, t + 1)) + (funA(d)(j, j) * beta(t + 1)(j, d + 1) * funObslik(j, t + 1)))
-          }
-
         })
       })
       beta(t) := Utils.normalise(beta(t))
     }
-
-    /*
-    (0 until T).foreach(t => {
-      (0 until M).foreach(j => {
-        println(beta(t)(j, ::))
-      })
-    })
-    */
-
-    /*
-    //es necesio normalizart la fila de unos?
-    for (t <- T - 2 to 0 by -1) {
-      (0 until D).foreach(d => {
-        (0 until M).foreach(j => {
-          beta(t)(j, d) = 0.0
-          (0 until M).foreach(i => beta(t)(j, d) = beta(t)(j, d) + (funA(d)(j, i) * beta(t + 1)(i, 0) * funObslik(i, t + 1)) + (funA(d)(j, j) * beta(t + 1)(j, d + 1) * funObslik(j, t + 1)))
-        })
-        beta(t)(::, d) := normalize(beta(t)(::, d), 1.0)
-      })
-    }
-    */
 
     val matrixi = DenseMatrix.fill(T, D) {
       DenseMatrix.zeros[Double](M, M)
@@ -299,18 +241,8 @@ object BaumWelchAlgorithm {
         (0 until M).foreach(i => {
           (0 until M).foreach(j => {
             if (i != j) {
-              //println("Elemento: " + t + ", " + d + ", " + i + ", " + j)
-              //println("alpha(t)(i, d): " + alpha(t)(i, d))
-              //println("funA(d)(i, j): " + funA(d)(i, j))
-              //println("funObslik(j, t + 1): " + funObslik(j, t + 1))
-              //println("beta(t + 1)(j, 1): " + beta(t + 1)(j, 1))
-              matrixi(t, d)(i, j) = alpha(t)(i, d) * funA(d)(i, j) * funObslik(j, t + 1) * beta(t + 1)(j, 1)
+              matrixi(t, d)(i, j) = alpha(t)(i, d) * funA(d)(i, j) * funObslik(j, t + 1) * beta(t + 1)(j, 0)
             } else if (d <= D - 2) {
-              //println("Elemento: " + t + ", " + d + ", " + i + ", " + j)
-              //println("alpha(t)(i, d): " + alpha(t)(i, d))
-              //println("funA(d)(i, j): " + funA(d)(i, j))
-              //println("funObslik(j, t + 1): " + funObslik(j, t + 1))
-              //println("beta(t + 1)(i, d + 1): " + beta(t + 1)(i, d + 1))
               matrixi(t, d)(i, j) = alpha(t)(i, d) * funA(d)(i, i) * funObslik(i, t + 1) * beta(t + 1)(i, d + 1)
             }
           })
@@ -318,18 +250,6 @@ object BaumWelchAlgorithm {
         matrixi(t, d) := Utils.normalise(matrixi(t, d))
       })
     })
-
-/*
-    (0 until T).foreach(t => {
-      (0 until D).foreach(d => {
-        println("Matrix " + t + ", " + d)
-        (0 until M).foreach(j => {
-          println(matrixi(t, d)(j, ::))
-        })
-      })
-    })*/
-
-
 
     val matrixn = DenseVector.fill(T) {
       DenseMatrix.zeros[Double](M, D)
@@ -344,32 +264,12 @@ object BaumWelchAlgorithm {
       })
     })
 
-    (0 until T).foreach(t => {
-      (0 until M).foreach(j => {
-        println("Matrix " + t + ", " + j)
-        println(matrixn(t)(j, ::))
-      })
-    })
-
-    //println(matrixn)
-
-    /*
-    (0 until T).foreach(t => {
-      (0 until D).foreach(d => {
-        (0 until M).foreach(i => {
-          (0 until M).foreach(j => matrixn(t)(i, d) = matrixn(t)(i, d) + matrixi(t, d)(i, j))
-        })
-        matrixn(t)(::, d) := normalize(matrixn(t)(::, d), 1.0)
-      })
-    })*/
-
     val matrixg = DenseMatrix.zeros[Double](M, T)
 
     (0 until T).foreach(t => {
       (0 until M).foreach(j => {
-
         (t until T).foreach(tao => {
-          (tao - t + 1 until D).foreach(d => {
+          (tao - t until D).foreach(d => {
               matrixg(j, t) = matrixg(j, t) + matrixn(tao)(j, d)
           })
         })
@@ -377,11 +277,8 @@ object BaumWelchAlgorithm {
       matrixg(::, t) := normalize(matrixg(::, t), 1.0)
     })
 
-    //println(matrixg)
-
     val newPi: DenseVector[Double] = new DenseVector(matrixg(::, 0).toArray)
-
-    //println(newPi)
+    newPi := normalize(newPi, 1.0)
 
     val newA: DenseVector[DenseMatrix[Double]] = DenseVector.fill(D) {
       DenseMatrix.zeros[Double](M, M)
@@ -441,51 +338,26 @@ object BaumWelchAlgorithm {
     }
 
     (0 until M).foreach(j => alpha(0)(j, 0) = funPi(j) * funObslik(j, 0))
-    //Validar dos caminos, por fila y por matriz
     alpha(0)(::, 0) := Utils.normalise(alpha(0)(::, 0), scale, 0)
 
     var scalaindex = 1
 
-    //se cambio el orden de los ciclos para realizar normalización en j
-    //probar normalizar por matrices
-    /** *
-      * IMPORTANTE probar normalizando alpha por fila, y normalizando beta por matrix
-      *
-      */
     (1 until T).foreach(t => {
       (0 until M).foreach(j => {
+
         (0 until M).foreach(i => alpha(t)(j, 0) = alpha(t)(j, 0) + alpha(t - 1)(i, 0) * funA(0)(i, j) * funObslik(j, t))
 
         (1 until D).foreach(d => {
-          (0 until M).foreach(i => alpha(t)(j, 0) = alpha(t)(j, 0) + alpha(t - 1)(i, d) * funA(d)(i, j) * funObslik(j, t))
+          var temp = 0.0
+          (0 until M).foreach(i => temp = temp + (alpha(t - 1)(i, d) * funA(d)(i, j) * funObslik(j, t)))
+
+          alpha(t)(j, 0) = alpha(t)(j, 0) + temp
 
           alpha(t)(j, d) = alpha(t - 1)(j, d - 1) * funA(d - 1)(j, j) * funObslik(j, t)
         })
       })
       alpha(t) := Utils.normalise(alpha(t), scale, t)
     })
-
-    /*
-    (1 until T).foreach(t => {
-
-      (1 until D).foreach(d => {
-
-        (0 until M).foreach(j => {
-
-          (0 until M).foreach(i => alpha(t)(j, 0) = alpha(t - 1)(i, 0) * funA(0)(i, j) * funObslik(j, t))
-
-
-          var temp = 0.0
-          (0 until M).foreach(i => temp = temp + alpha(t - 1)(i, d) * funA(d)(i, j) * funObslik(j, t))
-
-          alpha(t)(j, 0) = alpha(t)(j, 0) + temp
-          alpha(t)(j, d) = alpha(t - 1)(j, d - 1) * funA(d - 1)(j, j) * funObslik(j, t)
-        })
-        alpha(t)(::, d) := Utils.normalise(alpha(t)(::, d), scale, scalaindex)
-        scalaindex = scalaindex + 1
-      })
-    })
-    */
 
     val loglik: Double = sum(scale.map(Math.log))
     loglik

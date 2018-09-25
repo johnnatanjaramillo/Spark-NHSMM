@@ -220,7 +220,7 @@ object CrossValidation {
 
       var multM = value_M * value_M
       (0 until value_D).foreach(d => {
-        modelClass1_2(d) = new DenseMatrix(value_M, value_k, modelClass1._2.slice(d * multM, (d + 1) * multM))
+        modelClass1_2(d) = new DenseMatrix(value_M, value_M, modelClass1._2.slice(d * multM, (d + 1) * multM))
       })
 
       val modelClass0_2: DenseVector[DenseMatrix[Double]] = DenseVector.fill(value_D) {
@@ -228,7 +228,7 @@ object CrossValidation {
       }
 
       (0 until value_D).foreach(d => {
-        modelClass0_2(d) = new DenseMatrix(value_M, value_k, modelClass0._2.slice(d * multM, (d + 1) * multM))
+        modelClass0_2(d) = new DenseMatrix(value_M, value_M, modelClass0._2.slice(d * multM, (d + 1) * multM))
       })
 
       val resultClass1 =

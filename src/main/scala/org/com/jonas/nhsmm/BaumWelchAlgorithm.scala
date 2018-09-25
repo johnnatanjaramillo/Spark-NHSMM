@@ -136,12 +136,16 @@ object BaumWelchAlgorithm {
   def validate(observations: DataFrame, M: Int, k: Int, D: Int,
                initialPi: DenseVector[Double], initialA: DenseVector[DenseMatrix[Double]], initialB: DenseMatrix[Double]):
   DataFrame = {
+
+    var arrTransmat: Array[Double] = Array()
+    (0 until D).foreach(d => arrTransmat = arrTransmat ++ initialA(d).toArray)
+
     observations
       .withColumn("M", lit(M))
       .withColumn("k", lit(k))
       .withColumn("D", lit(D))
       .withColumn("Pi", lit(initialPi.toArray))
-      .withColumn("A", lit(initialA.toArray))
+      .withColumn("A", lit(arrTransmat))
       .withColumn("B", lit(initialB.toArray))
       .withColumn("obs", udf_toarray(col("str_obs")))
       .withColumn("T", udf_obssize(col("obs")))

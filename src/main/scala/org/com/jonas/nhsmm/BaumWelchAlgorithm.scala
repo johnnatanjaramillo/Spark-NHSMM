@@ -187,13 +187,18 @@ object BaumWelchAlgorithm {
 
     val funObslik: DenseMatrix[Double] = new DenseMatrix(M, T, obslik.toArray)
 
-    val scale: DenseVector[Double] = DenseVector.ones[Double](T)
+    val scale: DenseVector[Double] = DenseVector.ones[Double](T * M)
+    var indxScale = 0
     val alpha = DenseVector.fill(T) {
       DenseMatrix.zeros[Double](M, D)
     }
 
     (0 until M).foreach(j => alpha(0)(j, 0) = funPi(j) * funObslik(j, 0))
-    alpha(0)(::, 0) := Utils.normalise(alpha(0)(::, 0), scale, 0)
+    //alpha(0)(::, 0) := Utils.normalise(alpha(0)(::, 0), scale, indxScale)
+    //indxScale = indxScale + 1
+    (0 until M).foreach(j => {
+      alpha(0)(j, ::) := Utils.normalise(alpha(0)(j, ::).t, scale, indxScale).t
+    })
 
     var scalaindex = 1
 
@@ -207,11 +212,16 @@ object BaumWelchAlgorithm {
           (0 until M).foreach(i => temp = temp + (alpha(t - 1)(i, d) * funA(d)(i, j) * funObslik(j, t)))
 
           alpha(t)(j, 0) = alpha(t)(j, 0) + temp
+          //alpha(t)(::, 0) := Utils.normalise(alpha(t)(::, 0), scale, indxScale)
+          //indxScale = indxScale + 1
 
           alpha(t)(j, d) = alpha(t - 1)(j, d - 1) * funA(d - 1)(j, j) * funObslik(j, t)
+          //alpha(t)(::, d) := Utils.normalise(alpha(t)(::, d), scale, indxScale)
+          //indxScale = indxScale + 1
         })
+        alpha(t)(j, ::) := Utils.normalise(alpha(t)(j, ::).t, scale, indxScale).t
       })
-      alpha(t) := Utils.normalise(alpha(t), scale, t)
+      //alpha(t) := Utils.normalise(alpha(t), scale, t)
     })
 
     val loglik: Double = sum(scale.map(Math.log))
@@ -230,10 +240,12 @@ object BaumWelchAlgorithm {
       (0 until M).foreach(j => {
         //probar si es "D - 1" o "D"
         (0 until D - 1).foreach(d => {
-            (0 until M).foreach(i => beta(t)(j, d) = beta(t)(j, d) + (funA(d)(j, i) * beta(t + 1)(i, 0) * funObslik(i, t + 1)) + (funA(d)(j, j) * beta(t + 1)(j, d + 1) * funObslik(j, t + 1)))
+          (0 until M).foreach(i => beta(t)(j, d) = beta(t)(j, d) + (funA(d)(j, i) * beta(t + 1)(i, 0) * funObslik(i, t + 1)) + (funA(d)(j, j) * beta(t + 1)(j, d + 1) * funObslik(j, t + 1)))
+          //beta(t)(::, d) :=  normalize(beta(t)(::, d), 1.0)
         })
+        beta(t)(j, ::) :=  normalize(beta(t)(j, ::).t, 1.0).t
       })
-      beta(t) := Utils.normalise(beta(t))
+      //beta(t) := Utils.normalise(beta(t))
     }
 
     val matrixi = DenseMatrix.fill(T, D) {
@@ -250,8 +262,9 @@ object BaumWelchAlgorithm {
               matrixi(t, d)(i, j) = alpha(t)(i, d) * funA(d)(i, i) * funObslik(i, t + 1) * beta(t + 1)(i, d + 1)
             }
           })
+          matrixi(t, d)(i, ::) :=  normalize(matrixi(t, d)(i, ::).t, 1.0).t
         })
-        matrixi(t, d) := Utils.normalise(matrixi(t, d))
+        //matrixi(t, d) := Utils.normalise(matrixi(t, d))
       })
     })
 
@@ -336,13 +349,18 @@ object BaumWelchAlgorithm {
 
     val funObslik: DenseMatrix[Double] = new DenseMatrix(M, T, obslik.toArray)
 
-    val scale: DenseVector[Double] = DenseVector.ones[Double](T)
+    val scale: DenseVector[Double] = DenseVector.ones[Double](T * M)
+    var indxScale = 0
     val alpha = DenseVector.fill(T) {
       DenseMatrix.zeros[Double](M, D)
     }
 
     (0 until M).foreach(j => alpha(0)(j, 0) = funPi(j) * funObslik(j, 0))
-    alpha(0)(::, 0) := Utils.normalise(alpha(0)(::, 0), scale, 0)
+    //alpha(0)(::, 0) := Utils.normalise(alpha(0)(::, 0), scale, indxScale)
+    //indxScale = indxScale + 1
+    (0 until M).foreach(j => {
+      alpha(0)(j, ::) := Utils.normalise(alpha(0)(j, ::).t, scale, indxScale).t
+    })
 
     var scalaindex = 1
 
@@ -356,11 +374,16 @@ object BaumWelchAlgorithm {
           (0 until M).foreach(i => temp = temp + (alpha(t - 1)(i, d) * funA(d)(i, j) * funObslik(j, t)))
 
           alpha(t)(j, 0) = alpha(t)(j, 0) + temp
+          //alpha(t)(::, 0) := Utils.normalise(alpha(t)(::, 0), scale, indxScale)
+          //indxScale = indxScale + 1
 
           alpha(t)(j, d) = alpha(t - 1)(j, d - 1) * funA(d - 1)(j, j) * funObslik(j, t)
+          //alpha(t)(::, d) := Utils.normalise(alpha(t)(::, d), scale, indxScale)
+          //indxScale = indxScale + 1
         })
+        alpha(t)(j, ::) := Utils.normalise(alpha(t)(j, ::).t, scale, indxScale).t
       })
-      alpha(t) := Utils.normalise(alpha(t), scale, t)
+      //alpha(t) := Utils.normalise(alpha(t), scale, t)
     })
 
     val loglik: Double = sum(scale.map(Math.log))

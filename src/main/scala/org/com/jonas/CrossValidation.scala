@@ -139,11 +139,8 @@ object CrossValidation {
           DenseMatrix.zeros[Double](value_M, value_M)
         }
 
-        (0 until value_D).foreach(d => {
-          (0 until value_M).foreach(i => {
-            initA(d)(i, ::) := normalize(DenseVector.rand(value_M), 1.0).t
-          })
-        })
+        (0 until value_D).foreach(d =>
+          (0 until value_M).foreach(i => initA(d)(i, ::) := normalize(DenseVector.rand(value_M), 1.0).t))
 
         val tmpModelClass1: (DenseVector[Double], DenseVector[DenseMatrix[Double]], DenseMatrix[Double]) = nhsmm.BaumWelchAlgorithm.run1(
           trainClass1,
@@ -186,11 +183,8 @@ object CrossValidation {
           DenseMatrix.zeros[Double](value_M, value_M)
         }
 
-        (0 until value_D).foreach(d => {
-          (0 until value_M).foreach(i => {
-            initA(d)(i, ::) := normalize(DenseVector.rand(value_M), 1.0).t
-          })
-        })
+        (0 until value_D).foreach(d =>
+          (0 until value_M).foreach(i => initA(d)(i, ::) := normalize(DenseVector.rand[Double](value_M), 1.0).t))
 
         val tmpModelClass0 = nhsmm.BaumWelchAlgorithm.run1(trainClass0, value_M, value_k, value_D,
           normalize(DenseVector.rand(value_M), 1.0),
@@ -219,17 +213,15 @@ object CrossValidation {
       }
 
       var multM = value_M * value_M
-      (0 until value_D).foreach(d => {
-        modelClass1_2(d) = new DenseMatrix(value_M, value_M, modelClass1._2.slice(d * multM, (d + 1) * multM))
-      })
+      (0 until value_D).foreach(d =>
+        modelClass1_2(d) = new DenseMatrix(value_M, value_M, modelClass1._2.slice(d * multM, (d + 1) * multM)))
 
       val modelClass0_2: DenseVector[DenseMatrix[Double]] = DenseVector.fill(value_D) {
         DenseMatrix.zeros[Double](value_M, value_M)
       }
 
-      (0 until value_D).foreach(d => {
-        modelClass0_2(d) = new DenseMatrix(value_M, value_M, modelClass0._2.slice(d * multM, (d + 1) * multM))
-      })
+      (0 until value_D).foreach(d =>
+        modelClass0_2(d) = new DenseMatrix(value_M, value_M, modelClass0._2.slice(d * multM, (d + 1) * multM)))
 
       val resultClass1 =
         nhsmm.BaumWelchAlgorithm.validate(validClass1, value_M, value_k, value_D,

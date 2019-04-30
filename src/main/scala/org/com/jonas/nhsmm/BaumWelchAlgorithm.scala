@@ -32,18 +32,17 @@ object BaumWelchAlgorithm {
       val stringModel: List[String] = scala.io.Source.fromFile(path_Class_baumwelch + kfold).getLines().toList
       val arraymodel = stringModel.last.split(";")
 
-      prior = new DenseVector(arraymodel(4).split(",").map(_.toDouble))
-
       arrTransmat = arraymodel(5).split(",").map(_.toDouble)
 
       transmat = DenseVector.fill(D) {
         DenseMatrix.zeros[Double](M, M)
       }
+
       val multM = M * M
-      (0 until D).foreach(d => transmat(d) = new DenseMatrix(M, M, arrTransmat.slice( d * multM, (d + 1) * multM )))
+      (0 until D).foreach(d => transmat(d) = new DenseMatrix(M, M, arrTransmat.slice(d * multM, (d + 1) * multM)))
 
+      prior = new DenseVector(arraymodel(4).split(",").map(_.toDouble))
       obsmat = new DenseMatrix(M, k, arraymodel(6).split(",").map(_.toDouble))
-
       antloglik = arraymodel(7).toDouble
 
     } else nhsmm.Utils.writeresult(path_Class_baumwelch + kfold, "kfold;iteration;M;k;Pi;A;B;loglik\n")
@@ -80,18 +79,14 @@ object BaumWelchAlgorithm {
         val loglik = newvalues.getAs[Double](0)
         log.info("LogLikehood Value: " + loglik)
 
-        prior = normalize(new DenseVector(newvalues.getAs[Seq[Double]](1).toArray), 1.0)
-
         val multM = M * M
         var arrTransmat2: Array[Double] = newvalues.getAs[Seq[Double]](2).toArray
         (0 until D).foreach(d => transmat(d) = new DenseMatrix(M, M, arrTransmat2.slice(d * multM, (d + 1) * multM)))
 
-        (0 until D).foreach(d => {
-          (0 until M).foreach(i => {
-            transmat(d)(i, ::) := normalize(transmat(d)(i, ::).t, 1.0).t
-          })
-        })
+        (0 until D).foreach(d =>
+          (0 until M).foreach(i => transmat(d)(i, ::) := normalize(transmat(d)(i, ::).t, 1.0).t))
 
+        prior = normalize(new DenseVector(newvalues.getAs[Seq[Double]](1).toArray), 1.0)
         obsmat = Utils.mkstochastic(new DenseMatrix(M, k, newvalues.getAs[Seq[Double]](3).toArray))
 
         arrTransmat2 = Array()
@@ -165,19 +160,8 @@ object BaumWelchAlgorithm {
     output.toArray
   })
 
-  /** * udf_multinomialprob "optimized" ****/
-  val udf_multinomialprob2: UserDefinedFunction = udf((obs: Seq[Int], M: Int, k: Int, T: Int, B: Seq[Double]) => {
-    val output = Array.empty[Double]
-    (0 until T).foreach(j => {
-      val Mj = M * j
-      (0 until M).foreach(i => output :+ B(Mj + i))
-    })
-    output
-  })
-
   val udf_fwdback: UserDefinedFunction = udf((M: Int, k: Int, D: Int, T: Int, Pi: Seq[Double], A: Seq[Double], obslik: Seq[Double], obs: Seq[Int]) => {
 
-    val funPi: DenseVector[Double] = new DenseVector(Pi.toArray)
     val funA: DenseVector[DenseMatrix[Double]] = DenseVector.fill(D) {
       DenseMatrix.zeros[Double](M, M)
     }
@@ -185,89 +169,105 @@ object BaumWelchAlgorithm {
     val multM = M * M
     (0 until D).foreach(d => funA(d) = new DenseMatrix(M, M, A.toArray.slice(d * multM, (d + 1) * multM)))
 
+    val funPi: DenseVector[Double] = new DenseVector(Pi.toArray)
     val funObslik: DenseMatrix[Double] = new DenseMatrix(M, T, obslik.toArray)
 
-    val scale: DenseVector[Double] = DenseVector.ones[Double](T * M)
-    var indxScale = 0
+    /**
+      * Yu, S.-Z. (2016). Hidden Semi-Markov Models Theory, Algorithms and Applications. In Hidden Semi-Markov Models (pp. 1–26). Elsevier. https://doi.org/10.1016/B978-0-12-802767-7.00001-2
+      * Algorithm -> 5.2
+      */
+
+    /**
+      * Forwards variables
+      */
+    val scale: DenseVector[Double] = DenseVector.ones[Double](T * D)
+    var scalaindex = 1
+
     val alpha = DenseVector.fill(T) {
       DenseMatrix.zeros[Double](M, D)
     }
 
     (0 until M).foreach(j => alpha(0)(j, 0) = funPi(j) * funObslik(j, 0))
-    //alpha(0)(::, 0) := Utils.normalise(alpha(0)(::, 0), scale, indxScale)
-    //indxScale = indxScale + 1
-    (0 until M).foreach(j => {
-      alpha(0)(j, ::) := Utils.normalise(alpha(0)(j, ::).t, scale, indxScale).t
-    })
-
-    var scalaindex = 1
+    alpha(0)(::, 0) := Utils.normalise(alpha(0)(::, 0), scale, 0)
 
     (1 until T).foreach(t => {
       (0 until M).foreach(j => {
 
-        (0 until M).foreach(i => alpha(t)(j, 0) = alpha(t)(j, 0) + alpha(t - 1)(i, 0) * funA(0)(i, j) * funObslik(j, t))
+        (0 until M).foreach(i => if (i != j)
+          alpha(t)(j, 0) = alpha(t)(j, 0) + (alpha(t - 1)(i, 0) * funA(0)(i, j) * funObslik(j, t)))
 
         (1 until D).foreach(d => {
-          var temp = 0.0
-          (0 until M).foreach(i => temp = temp + (alpha(t - 1)(i, d) * funA(d)(i, j) * funObslik(j, t)))
 
-          alpha(t)(j, 0) = alpha(t)(j, 0) + temp
-          //alpha(t)(::, 0) := Utils.normalise(alpha(t)(::, 0), scale, indxScale)
-          //indxScale = indxScale + 1
+          var tempAlpha = 0.0
+          (0 until M).foreach(i => if (i != j) tempAlpha = tempAlpha + (alpha(t - 1)(i, d) * funA(d)(i, j) * funObslik(j, t)))
+          alpha(t)(j, 0) = alpha(t)(j, 0) + tempAlpha
+
+          alpha(t)(::, 0) := Utils.normalise(alpha(t)(::, 0), scale, scalaindex)
+          scalaindex = scalaindex + 1
 
           alpha(t)(j, d) = alpha(t - 1)(j, d - 1) * funA(d - 1)(j, j) * funObslik(j, t)
-          //alpha(t)(::, d) := Utils.normalise(alpha(t)(::, d), scale, indxScale)
-          //indxScale = indxScale + 1
+          //normalización
+
+          alpha(t)(::, d) := Utils.normalise(alpha(t)(::, d), scale, scalaindex)
+          scalaindex = scalaindex + 1
+
         })
-        alpha(t)(j, ::) := Utils.normalise(alpha(t)(j, ::).t, scale, indxScale).t
       })
-      //alpha(t) := Utils.normalise(alpha(t), scale, t)
     })
 
     val loglik: Double = sum(scale.map(Math.log))
 
+    /**
+      * Backwards variables
+      */
     val beta = DenseVector.fill(T) {
       DenseMatrix.zeros[Double](M, D)
     }
 
-    (0 until M).foreach(j => {
-      (0 until D).foreach(d => {
-        beta(T - 1)(j, d) = 1.0
-      })
-    })
+    (0 until M).foreach(j => (0 until D).foreach(d => beta(T - 1)(j, d) = 1.0))
 
     for (t <- T - 2 to 0 by -1) {
       (0 until M).foreach(j => {
-        //probar si es "D - 1" o "D"
+        //probar si es "D - 1" o "D", see algorithm
         (0 until D - 1).foreach(d => {
-          (0 until M).foreach(i => beta(t)(j, d) = beta(t)(j, d) + (funA(d)(j, i) * beta(t + 1)(i, 0) * funObslik(i, t + 1)) + (funA(d)(j, j) * beta(t + 1)(j, d + 1) * funObslik(j, t + 1)))
-          //beta(t)(::, d) :=  normalize(beta(t)(::, d), 1.0)
+
+          (0 until M).foreach(i => if (i != j)
+            beta(t)(j, d) = beta(t)(j, d) +
+              (funA(d)(j, i) * beta(t + 1)(i, 0) * funObslik(i, t + 1)) +
+                (funA(d)(j, j) * beta(t + 1)(j, d + 1) * funObslik(j, t + 1)))
+          beta(t)(::, d) :=  normalize(beta(t)(::, d), 1.0)
         })
-        beta(t)(j, ::) :=  normalize(beta(t)(j, ::).t, 1.0).t
+        //beta(t)(j, ::) :=  normalize(beta(t)(j, ::).t, 1.0).t
       })
-      //beta(t) := Utils.normalise(beta(t))
     }
 
+    /**
+      * Yu, S.-Z. (2016). Hidden Semi-Markov Models Theory, Algorithms and Applications. In Hidden Semi-Markov Models (pp. 1–26). Elsevier. https://doi.org/10.1016/B978-0-12-802767-7.00001-2
+      * Section -> 5.2.1
+      */
     val matrixi = DenseMatrix.fill(T, D) {
       DenseMatrix.zeros[Double](M, M)
     }
 
+    //check index of T
     (0 until T - 1).foreach(t => {
-      (0 until D).foreach(d => {
-        (0 until M).foreach(i => {
+      (0 until M).foreach(i => {
+        (0 until D).foreach(d => {
           (0 until M).foreach(j => {
-            if (i != j) {
+            if (i != j)
               matrixi(t, d)(i, j) = alpha(t)(i, d) * funA(d)(i, j) * funObslik(j, t + 1) * beta(t + 1)(j, 0)
-            } else if (d <= D - 2) {
+            else if (d <= D - 2)
               matrixi(t, d)(i, j) = alpha(t)(i, d) * funA(d)(i, i) * funObslik(i, t + 1) * beta(t + 1)(i, d + 1)
-            }
           })
-          matrixi(t, d)(i, ::) :=  normalize(matrixi(t, d)(i, ::).t, 1.0).t
+          matrixi(t, d)(i, ::) := Utils.normalise(matrixi(t, d)(i, ::).t).t
         })
-        //matrixi(t, d) := Utils.normalise(matrixi(t, d))
       })
     })
 
+    /**
+      * Yu, S.-Z. (2016). Hidden Semi-Markov Models Theory, Algorithms and Applications. In Hidden Semi-Markov Models (pp. 1–26). Elsevier. https://doi.org/10.1016/B978-0-12-802767-7.00001-2
+      * Section -> 5.2.1
+      */
     val matrixn = DenseVector.fill(T) {
       DenseMatrix.zeros[Double](M, D)
     }
@@ -275,27 +275,36 @@ object BaumWelchAlgorithm {
     (0 until T).foreach(t => {
       (0 until M).foreach(i => {
         (0 until D).foreach(d => {
-          (0 until M).foreach(j => matrixn(t)(i, d) = matrixn(t)(i, d) + matrixi(t, d)(i, j))
+          (0 until M).foreach(j => if (i != j) matrixn(t)(i, d) = matrixn(t)(i, d) + matrixi(t, d)(i, j))
         })
         matrixn(t)(i, ::) := normalize(matrixn(t)(i, ::).t, 1.0).t
       })
+      //matrixn(t) := Utils.normalise(matrixn(t))
     })
 
+    /**
+      * Yu, S.-Z. (2016). Hidden Semi-Markov Models Theory, Algorithms and Applications. In Hidden Semi-Markov Models (pp. 1–26). Elsevier. https://doi.org/10.1016/B978-0-12-802767-7.00001-2
+      * Equation -> 2.13
+      */
     val matrixg = DenseMatrix.zeros[Double](M, T)
 
     (0 until T).foreach(t => {
       (0 until M).foreach(j => {
         (t until T).foreach(tao => {
           (tao - t until D).foreach(d => {
-              matrixg(j, t) = matrixg(j, t) + matrixn(tao)(j, d)
+            matrixg(j, t) = matrixg(j, t) + matrixn(tao)(j, d)
           })
         })
       })
-      matrixg(::, t) := normalize(matrixg(::, t), 1.0)
+      matrixg(::, t) := Utils.normalise(matrixg(::, t))
     })
 
+    /**
+      * Yu, S.-Z. (2016). Hidden Semi-Markov Models Theory, Algorithms and Applications. In Hidden Semi-Markov Models (pp. 1–26). Elsevier. https://doi.org/10.1016/B978-0-12-802767-7.00001-2
+      * Section -> 5.2.1
+      */
     val newPi: DenseVector[Double] = new DenseVector(matrixg(::, 0).toArray)
-    newPi := normalize(newPi, 1.0)
+    newPi := Utils.normalise(newPi)
 
     val newA: DenseVector[DenseMatrix[Double]] = DenseVector.fill(D) {
       DenseMatrix.zeros[Double](M, M)
@@ -308,7 +317,7 @@ object BaumWelchAlgorithm {
             newA(d)(i, j) = newA(d)(i, j) + matrixi(t, d)(i, j)
           })
         })
-        newA(d)(i, ::) := normalize(newA(d)(i, ::).t, 1.0).t
+        newA(d)(i, ::) := Utils.normalise(newA(d)(i, ::).t).t
       })
     })
 
@@ -322,7 +331,7 @@ object BaumWelchAlgorithm {
           }
         })
       })
-      newB(j, ::) := normalize(newB(j, ::).t, 1.0).t
+      newB(j, ::) := Utils.normalise(newB(j, ::).t).t
     })
 
     var arrTransmat: Array[Double] = Array()
@@ -339,7 +348,6 @@ object BaumWelchAlgorithm {
   /** * Por optimizar ****/
   val udf_fwd: UserDefinedFunction = udf((M: Int, D: Int, T: Int, Pi: Seq[Double], A: Seq[Double], obslik: Seq[Double]) => {
 
-    val funPi: DenseVector[Double] = new DenseVector(Pi.toArray)
     val funA: DenseVector[DenseMatrix[Double]] = DenseVector.fill(D) {
       DenseMatrix.zeros[Double](M, M)
     }
@@ -347,43 +355,50 @@ object BaumWelchAlgorithm {
     val multM = M * M
     (0 until D).foreach(d => funA(d) = new DenseMatrix(M, M, A.toArray.slice(d * multM, (d + 1) * multM)))
 
+    val funPi: DenseVector[Double] = new DenseVector(Pi.toArray)
     val funObslik: DenseMatrix[Double] = new DenseMatrix(M, T, obslik.toArray)
 
-    val scale: DenseVector[Double] = DenseVector.ones[Double](T * M)
-    var indxScale = 0
+    /**
+      * Yu, S.-Z. (2016). Hidden Semi-Markov Models Theory, Algorithms and Applications. In Hidden Semi-Markov Models (pp. 1–26). Elsevier. https://doi.org/10.1016/B978-0-12-802767-7.00001-2
+      * Algorithm -> 5.2
+      */
+
+    /**
+      * Forwards variables
+      */
+    val scale: DenseVector[Double] = DenseVector.ones[Double](T * D)
+    var scalaindex = 1
+
     val alpha = DenseVector.fill(T) {
       DenseMatrix.zeros[Double](M, D)
     }
 
     (0 until M).foreach(j => alpha(0)(j, 0) = funPi(j) * funObslik(j, 0))
-    //alpha(0)(::, 0) := Utils.normalise(alpha(0)(::, 0), scale, indxScale)
-    //indxScale = indxScale + 1
-    (0 until M).foreach(j => {
-      alpha(0)(j, ::) := Utils.normalise(alpha(0)(j, ::).t, scale, indxScale).t
-    })
-
-    var scalaindex = 1
+    alpha(0)(::, 0) := Utils.normalise(alpha(0)(::, 0), scale, 0)
 
     (1 until T).foreach(t => {
       (0 until M).foreach(j => {
 
-        (0 until M).foreach(i => alpha(t)(j, 0) = alpha(t)(j, 0) + alpha(t - 1)(i, 0) * funA(0)(i, j) * funObslik(j, t))
+        (0 until M).foreach(i => if (i != j)
+          alpha(t)(j, 0) = alpha(t)(j, 0) + (alpha(t - 1)(i, 0) * funA(0)(i, j) * funObslik(j, t)))
 
         (1 until D).foreach(d => {
-          var temp = 0.0
-          (0 until M).foreach(i => temp = temp + (alpha(t - 1)(i, d) * funA(d)(i, j) * funObslik(j, t)))
 
-          alpha(t)(j, 0) = alpha(t)(j, 0) + temp
-          //alpha(t)(::, 0) := Utils.normalise(alpha(t)(::, 0), scale, indxScale)
-          //indxScale = indxScale + 1
+          var tempAlpha = 0.0
+          (0 until M).foreach(i => if (i != j) tempAlpha = tempAlpha + (alpha(t - 1)(i, d) * funA(d)(i, j) * funObslik(j, t)))
+          alpha(t)(j, 0) = alpha(t)(j, 0) + tempAlpha
+
+          alpha(t)(::, 0) := Utils.normalise(alpha(t)(::, 0), scale, scalaindex)
+          scalaindex = scalaindex + 1
 
           alpha(t)(j, d) = alpha(t - 1)(j, d - 1) * funA(d - 1)(j, j) * funObslik(j, t)
-          //alpha(t)(::, d) := Utils.normalise(alpha(t)(::, d), scale, indxScale)
-          //indxScale = indxScale + 1
+          //normalización
+
+          alpha(t)(::, d) := Utils.normalise(alpha(t)(::, d), scale, scalaindex)
+          scalaindex = scalaindex + 1
+
         })
-        alpha(t)(j, ::) := Utils.normalise(alpha(t)(j, ::).t, scale, indxScale).t
       })
-      //alpha(t) := Utils.normalise(alpha(t), scale, t)
     })
 
     val loglik: Double = sum(scale.map(Math.log))

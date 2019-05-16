@@ -59,7 +59,7 @@ object BaumWelchAlgorithm {
       .withColumn("T", udf_obssize(col("obs")))
 
     breakable {
-      (0 until maxIterations).foreach(it => {
+      (inInter until maxIterations).foreach(it => {
         log.info("-----------------------------------------------------------------------------------------")
         log.info("Start Iteration: " + it)
         val newvalues = obstrained.repartition(numPartitions)

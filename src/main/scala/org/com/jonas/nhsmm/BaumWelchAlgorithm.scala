@@ -180,8 +180,8 @@ object BaumWelchAlgorithm {
     /**
       * Forwards variables
       */
-    val scale: DenseVector[Double] = DenseVector.ones[Double](T * D)
-    var scalaindex = 1
+    val scale: DenseVector[Double] = DenseVector.ones[Double](2 * T * M * D)
+    var scalaindex = 0
 
     val alpha = DenseVector.fill(T) {
       DenseMatrix.zeros[Double](M, D)
